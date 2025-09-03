@@ -1,7 +1,14 @@
 torchxrayvision
-captum
+torchvision
+pandas
+requests
 umap-learn
 notebook
 seaborn
 openpyxl
 torchmetrics
+pillow
+numpy
+scikit-image
+scikit-learn
+tqdm

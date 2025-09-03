@@ -11,9 +11,7 @@ import torch
 import torchvision.transforms as transforms
 import torchxrayvision as xrv
 from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
 import numpy as np
-import umap
 from PIL import Image
 import os
 from glob import glob
