@@ -4,6 +4,8 @@ Model utility functions for downloading and loading pre-trained BPD prediction m
 
 import torch
 import os
+import sys
+import types
 import requests
 from pathlib import Path
 from tqdm import tqdm
@@ -11,6 +13,54 @@ from typing import Optional, Dict, Any
 import json
 import numpy as np
 from PIL import Image
+from dataclasses import dataclass
+
+
+def _load_checkpoint(model_path, device):
+    """Load checkpoint with proper handling of __main__.ModelConfig references."""
+    # 1) Try safest path first
+    try:
+        return torch.load(model_path, map_location=device, weights_only=True)
+    except Exception:
+        pass
+
+    # 2) Allow-list the legacy __main__.ModelConfig for safe weights-only load
+    m = sys.modules.get("__main__")
+    if m is None:
+        m = types.ModuleType("__main__")
+        sys.modules["__main__"] = m
+    if not hasattr(m, "ModelConfig"):
+        class ModelConfig:  # stub; structure not needed to read tensors
+            pass
+        m.ModelConfig = ModelConfig
+
+    try:
+        torch.serialization.add_safe_globals([m.ModelConfig])
+        return torch.load(model_path, map_location=device, weights_only=True)
+    except Exception:
+        pass
+
+    return torch.load(model_path, map_location=device, weights_only=False)
+
+
+@dataclass
+class ModelConfig:
+    """Configuration for a model - needed for unpickling saved checkpoints."""
+    name: str
+    display_name: str
+    backbone: str
+    freezing: bool
+    mixup: bool
+    epochs: int
+    probe_epochs: int
+    probe_mixup: bool
+    expected_auroc: float
+    unfreeze_layer4: float = 0.10
+    unfreeze_layer3: float = 0.30
+    unfreeze_layer2: float = 0.60
+    init_mixup_prob: float = 0.5
+    mixup_alpha: float = 1.0
+    probe_lr: float = 1e-3
 
 
 MODEL_CONFIGS = {
@@ -200,19 +250,16 @@ def load_pretrained_model(
     # Build model with correct backbone and wrapper
     model = _build_model_from_config(config).to(device)
     
-    # Load weights
-    checkpoint = torch.load(model_path, map_location=device)
+    # Load checkpoint using our helper function
+    checkpoint = _load_checkpoint(model_path, device)
     
-    # Handle different checkpoint formats
+    # Extract state dict robustly
     if isinstance(checkpoint, dict):
-        if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'])
-        elif 'state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['state_dict'])
-        else:
-            model.load_state_dict(checkpoint)
+        state = checkpoint.get("model_state_dict") or checkpoint.get("state_dict") or checkpoint
     else:
-        model.load_state_dict(checkpoint)
+        state = checkpoint
+    
+    model.load_state_dict(state, strict=True)
     
     model.eval()
     
