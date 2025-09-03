@@ -9,18 +9,20 @@ from pathlib import Path
 from tqdm import tqdm
 from typing import Optional, Dict, Any
 import json
+import numpy as np
+from PIL import Image
 
 
-# Model configuration and Google Drive file IDs
 MODEL_CONFIGS = {
     "bpd_xrv_progfreeze_lp_cutmix": {
         "file_id": "PLACEHOLDER1",
         "description": "Best performing model with XRV pretraining, progressive freezing, linear probing, and CutMix",
         "auroc": 0.783,
         "preprocessing": "xrv",
-        "input_size": 224,
+        "input_size": 512,
         "num_classes": 1,
         "architecture": "resnet50",
+        "backbone": "xrv",
         "frozen_layers": ["layer1", "layer2", "layer3"]
     },
     "bpd_xrv_progfreeze": {
@@ -28,9 +30,10 @@ MODEL_CONFIGS = {
         "description": "Baseline with XRV pretraining and progressive freezing (no augmentation)",
         "auroc": 0.775,
         "preprocessing": "xrv",
-        "input_size": 224,
+        "input_size": 512,
         "num_classes": 1,
         "architecture": "resnet50",
+        "backbone": "xrv",
         "frozen_layers": ["layer1", "layer2", "layer3"]
     },
     "bpd_rgb_progfreeze": {
@@ -38,9 +41,10 @@ MODEL_CONFIGS = {
         "description": "ImageNet baseline with progressive freezing (for comparison)",
         "auroc": 0.717,
         "preprocessing": "imagenet",
-        "input_size": 224,
+        "input_size": 512,
         "num_classes": 1,
         "architecture": "resnet50",
+        "backbone": "torchvision",
         "frozen_layers": ["layer1", "layer2", "layer3"]
     },
     "bpd_xrv_fullft": {
@@ -48,9 +52,10 @@ MODEL_CONFIGS = {
         "description": "XRV pretraining with full fine-tuning (no freezing)",
         "auroc": 0.761,
         "preprocessing": "xrv",
-        "input_size": 224,
+        "input_size": 512,
         "num_classes": 1,
         "architecture": "resnet50",
+        "backbone": "xrv",
         "frozen_layers": []
     }
 }
@@ -149,6 +154,24 @@ def download_model_weights(model_name: str, save_dir: str = "~/.bpdneo/models") 
     return downloader.download_model()
 
 
+def _build_model_from_config(config: Dict[str, Any]) -> torch.nn.Module:
+    """
+    Build model architecture from configuration, matching training setup.
+    """
+    import torchxrayvision as xrv
+    from torchvision import models as tvm
+    from bpd_torch.models.model import BPDModel
+    
+    if config["backbone"] == "xrv":
+        base = xrv.models.ResNet(weights="resnet50-res512-all")
+    elif config["backbone"] == "torchvision":
+        base = tvm.resnet50(weights=tvm.ResNet50_Weights.IMAGENET1K_V2)
+    else:
+        raise ValueError(f"Unknown backbone: {config['backbone']}")
+    
+    return BPDModel(base)
+
+
 def load_pretrained_model(
     model_name: str,
     device: Optional[torch.device] = None,
@@ -174,16 +197,8 @@ def load_pretrained_model(
     # Load configuration
     config = MODEL_CONFIGS[model_name]
     
-    # Create model architecture
-    if config["architecture"] == "resnet50":
-        from torchvision import models
-        model = models.resnet50(pretrained=False)
-        
-        # Modify for binary classification
-        num_features = model.fc.in_features
-        model.fc = torch.nn.Linear(num_features, config["num_classes"])
-    else:
-        raise ValueError(f"Unknown architecture: {config['architecture']}")
+    # Build model with correct backbone and wrapper
+    model = _build_model_from_config(config).to(device)
     
     # Load weights
     checkpoint = torch.load(model_path, map_location=device)
@@ -199,7 +214,6 @@ def load_pretrained_model(
     else:
         model.load_state_dict(checkpoint)
     
-    model.to(device)
     model.eval()
     
     print(f"Loaded model '{model_name}' on {device}")
@@ -212,6 +226,7 @@ def load_pretrained_model(
 def get_preprocessing_transforms(model_name: str):
     """
     Get the appropriate preprocessing transforms for a model.
+    Matches the exact preprocessing used during training.
     
     Args:
         model_name: Name of the model
@@ -219,26 +234,36 @@ def get_preprocessing_transforms(model_name: str):
     Returns:
         torchvision transforms for preprocessing
     """
-    from torchvision import transforms
+    from torchvision import transforms as T
+    import torchxrayvision as xrv
     
     config = MODEL_CONFIGS[model_name]
     input_size = config["input_size"]
     
     if config["preprocessing"] == "xrv":
-        # TorchXRayVision preprocessing
-        transform = transforms.Compose([
-            transforms.Resize((input_size, input_size)),
-            transforms.Grayscale(num_output_channels=1),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5])  # XRV normalization
-        ])
+        # XRV preprocessing as used in training:
+        # Load grayscale -> xrv.datasets.normalize -> tensor -> resize(512)
+        def _xrv_transform(pil_img):
+            """Apply XRV preprocessing matching training."""
+            # Convert to grayscale numpy array
+            arr = np.array(pil_img.convert('L'))
+            # Apply XRV normalization (expects values 0-255)
+            arr = xrv.datasets.normalize(arr, 255)
+            # Convert to tensor (this handles the conversion to float and adds channel dim)
+            tensor = T.ToTensor()(arr)
+            # Resize to target size
+            resize = T.Resize((input_size, input_size), antialias=True)
+            return resize(tensor)
+        
+        transform = T.Lambda(_xrv_transform)
+        
     elif config["preprocessing"] == "imagenet":
-        # ImageNet preprocessing
-        transform = transforms.Compose([
-            transforms.Resize((input_size, input_size)),
-            transforms.Grayscale(num_output_channels=3),  # Convert to RGB
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        # ImageNet preprocessing for RGB models
+        transform = T.Compose([
+            T.Resize((input_size, input_size), antialias=True),
+            T.Lambda(lambda x: x.convert('RGB') if x.mode != 'RGB' else x),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
     else:
         raise ValueError(f"Unknown preprocessing type: {config['preprocessing']}")
