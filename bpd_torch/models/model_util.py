@@ -1,0 +1,282 @@
+"""
+Model utility functions for downloading and loading pre-trained BPD prediction models.
+"""
+
+import torch
+import os
+import requests
+from pathlib import Path
+from tqdm import tqdm
+from typing import Optional, Dict, Any
+import json
+
+
+# Model configuration and Google Drive file IDs
+MODEL_CONFIGS = {
+    "bpd_xrv_progfreeze_lp_cutmix": {
+        "file_id": "PLACEHOLDER1",
+        "description": "Best performing model with XRV pretraining, progressive freezing, linear probing, and CutMix",
+        "auroc": 0.783,
+        "preprocessing": "xrv",
+        "input_size": 224,
+        "num_classes": 1,
+        "architecture": "resnet50",
+        "frozen_layers": ["layer1", "layer2", "layer3"]
+    },
+    "bpd_xrv_progfreeze": {
+        "file_id": "PLACEHOLDER2",
+        "description": "Baseline with XRV pretraining and progressive freezing (no augmentation)",
+        "auroc": 0.775,
+        "preprocessing": "xrv",
+        "input_size": 224,
+        "num_classes": 1,
+        "architecture": "resnet50",
+        "frozen_layers": ["layer1", "layer2", "layer3"]
+    },
+    "bpd_rgb_progfreeze": {
+        "file_id": "PLACEHOLDER3",
+        "description": "ImageNet baseline with progressive freezing (for comparison)",
+        "auroc": 0.717,
+        "preprocessing": "imagenet",
+        "input_size": 224,
+        "num_classes": 1,
+        "architecture": "resnet50",
+        "frozen_layers": ["layer1", "layer2", "layer3"]
+    },
+    "bpd_xrv_fullft": {
+        "file_id": "PLACEHOLDER4",
+        "description": "XRV pretraining with full fine-tuning (no freezing)",
+        "auroc": 0.761,
+        "preprocessing": "xrv",
+        "input_size": 224,
+        "num_classes": 1,
+        "architecture": "resnet50",
+        "frozen_layers": []
+    }
+}
+
+
+class ModelDownloader:
+    """Downloads pre-trained BPD prediction models from Google Drive."""
+    
+    def __init__(self, model_name: str, save_dir: str = "~/.bpdneo/models"):
+        """
+        Initialize the model downloader.
+        
+        Args:
+            model_name: Name of the model to download (see MODEL_CONFIGS keys)
+            save_dir: Directory to save downloaded models
+        """
+        if model_name not in MODEL_CONFIGS:
+            available_models = ", ".join(MODEL_CONFIGS.keys())
+            raise ValueError(
+                f"Model '{model_name}' not found. Available models: {available_models}"
+            )
+        
+        self.model_name = model_name
+        self.config = MODEL_CONFIGS[model_name]
+        self.save_dir = Path(os.path.expanduser(save_dir))
+        self.model_path = self.save_dir / f"{model_name}.pth"
+        self.config_path = self.save_dir / f"{model_name}_config.json"
+        
+        # Google Drive download URL
+        file_id = self.config["file_id"]
+        self.model_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    
+    def download_model(self) -> Path:
+        """
+        Download the model weights if not already present.
+        
+        Returns:
+            Path to the downloaded model weights
+        """
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save config file
+        if not self.config_path.exists():
+            with open(self.config_path, 'w') as f:
+                json.dump(self.config, f, indent=2)
+        
+        # Check if model already exists
+        if self.model_path.exists():
+            print(f"Model '{self.model_name}' already exists at {self.model_path}")
+            return self.model_path
+        
+        print(f"Downloading {self.model_name}...")
+        print(f"Description: {self.config['description']}")
+        print(f"Expected AUROC: {self.config['auroc']}")
+        
+        try:
+            response = requests.get(self.model_url, stream=True)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            
+            with open(self.model_path, 'wb') as f:
+                with tqdm(
+                    desc=f"Downloading {self.model_name}",
+                    total=total_size,
+                    unit='B',
+                    unit_scale=True,
+                    unit_divisor=1024
+                ) as pbar:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+            
+            print(f"Model downloaded successfully to {self.model_path}")
+            return self.model_path
+            
+        except requests.exceptions.RequestException as e:
+            if self.model_path.exists():
+                self.model_path.unlink()  # Remove partial download
+            raise RuntimeError(f"Failed to download model: {e}")
+
+
+def download_model_weights(model_name: str, save_dir: str = "~/.bpdneo/models") -> Path:
+    """
+    Download pre-trained model weights.
+    
+    Args:
+        model_name: Name of the model to download
+        save_dir: Directory to save the model
+    
+    Returns:
+        Path to the downloaded model weights
+    """
+    downloader = ModelDownloader(model_name, save_dir)
+    return downloader.download_model()
+
+
+def load_pretrained_model(
+    model_name: str,
+    device: Optional[torch.device] = None,
+    save_dir: str = "~/.bpdneo/models"
+) -> torch.nn.Module:
+    """
+    Load a pre-trained BPD prediction model.
+    
+    Args:
+        model_name: Name of the model to load
+        device: Device to load the model on (default: cuda if available, else cpu)
+        save_dir: Directory where models are saved
+    
+    Returns:
+        Loaded PyTorch model ready for inference
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Download model if needed
+    model_path = download_model_weights(model_name, save_dir)
+    
+    # Load configuration
+    config = MODEL_CONFIGS[model_name]
+    
+    # Create model architecture
+    if config["architecture"] == "resnet50":
+        from torchvision import models
+        model = models.resnet50(pretrained=False)
+        
+        # Modify for binary classification
+        num_features = model.fc.in_features
+        model.fc = torch.nn.Linear(num_features, config["num_classes"])
+    else:
+        raise ValueError(f"Unknown architecture: {config['architecture']}")
+    
+    # Load weights
+    checkpoint = torch.load(model_path, map_location=device)
+    
+    # Handle different checkpoint formats
+    if isinstance(checkpoint, dict):
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        elif 'state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+    else:
+        model.load_state_dict(checkpoint)
+    
+    model.to(device)
+    model.eval()
+    
+    print(f"Loaded model '{model_name}' on {device}")
+    print(f"Preprocessing: {config['preprocessing']}")
+    print(f"Input size: {config['input_size']}x{config['input_size']}")
+    
+    return model
+
+
+def get_preprocessing_transforms(model_name: str):
+    """
+    Get the appropriate preprocessing transforms for a model.
+    
+    Args:
+        model_name: Name of the model
+    
+    Returns:
+        torchvision transforms for preprocessing
+    """
+    from torchvision import transforms
+    
+    config = MODEL_CONFIGS[model_name]
+    input_size = config["input_size"]
+    
+    if config["preprocessing"] == "xrv":
+        # TorchXRayVision preprocessing
+        transform = transforms.Compose([
+            transforms.Resize((input_size, input_size)),
+            transforms.Grayscale(num_output_channels=1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5])  # XRV normalization
+        ])
+    elif config["preprocessing"] == "imagenet":
+        # ImageNet preprocessing
+        transform = transforms.Compose([
+            transforms.Resize((input_size, input_size)),
+            transforms.Grayscale(num_output_channels=3),  # Convert to RGB
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+    else:
+        raise ValueError(f"Unknown preprocessing type: {config['preprocessing']}")
+    
+    return transform
+
+
+def list_available_models() -> Dict[str, Any]:
+    """
+    List all available pre-trained models with their descriptions.
+    
+    Returns:
+        Dictionary of model names and their configurations
+    """
+    models_info = {}
+    for name, config in MODEL_CONFIGS.items():
+        models_info[name] = {
+            "description": config["description"],
+            "auroc": config["auroc"],
+            "architecture": config["architecture"],
+            "preprocessing": config["preprocessing"]
+        }
+    return models_info
+
+
+if __name__ == "__main__":
+    # Example usage
+    print("Available BPD prediction models:")
+    print("-" * 50)
+    
+    for name, info in list_available_models().items():
+        print(f"\n{name}:")
+        print(f"  Description: {info['description']}")
+        print(f"  AUROC: {info['auroc']}")
+        print(f"  Architecture: {info['architecture']}")
+        print(f"  Preprocessing: {info['preprocessing']}")
+    
+    print("\n" + "-" * 50)
+    print("\nTo download and use a model:")
+    print(">>> from bpd_torch.models.model_util import load_pretrained_model")
+    print(">>> model = load_pretrained_model('bpd_xrv_progfreeze_lp_cutmix')")
