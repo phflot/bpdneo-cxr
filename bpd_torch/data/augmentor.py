@@ -98,37 +98,6 @@ class RandomMasking:
         return img * mask
 
 
-def get_augmentations_dpr(size):
-    return transforms.Compose([
-    transforms.RandomRotation(degrees=5),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomResizedCrop(size, scale=(0.9, 1.0)),
-    transforms.RandomApply([transforms.GaussianBlur(kernel_size=9, sigma=(0.1, 2))], p=0.5),
-    RandomMasking(mask_prob=0.25, p=0.1),
-])
-
-
-def get_augmentations_depr2(size):
-    return transforms.Compose([
-        transforms.RandomRotation(10, interpolation=2),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomResizedCrop(size, scale=(0.8, 1.0)),
-        transforms.GaussianBlur(9, sigma=(0.1, 2)),
-        RandomMasking(mask_prob=0.25, p=0.1),
-        transforms.RandomErasing(p=0.2, scale=(0.02, 0.2), ratio=(0.3, 3.3)),
-    ])
-
-
-def get_augmentations_works_awesome_072(size):
-    return transforms.Compose([
-    transforms.RandomRotation(degrees=5, interpolation=transforms.functional.InterpolationMode.BILINEAR),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomResizedCrop(size, scale=(0.95, 1.05)),
-    transforms.RandomApply([transforms.GaussianBlur(kernel_size=9, sigma=(0.05, 2))], p=0.5),
-    RandomMasking(mask_prob=0.25, p=0.1),
-    ])
-
-
 def get_augmentations(size):
     return transforms.Compose([
     transforms.RandomRotation(degrees=5, interpolation=transforms.functional.InterpolationMode.BILINEAR),
