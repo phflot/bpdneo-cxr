@@ -74,13 +74,6 @@ Results are saved as CSV files with detailed metrics including AUROC, F1 score, 
 
 The study uses chest radiographs from 163 ELBW infants (≤32 weeks gestation, 401-999g) from the NeoVitaA trial. Images were acquired within 24 hours of birth as part of routine respiratory assessment.
 
-## Results
-
-| Model Configuration | AUROC          | Balanced Accuracy | F1 Score |
-|-------------------|----------------|------------------|----------|
-| XRV-ProgFreeze + LP + CutMix | 0.783 ± 0.095 | 0.686 ± 0.101 | 0.671 ± 0.111 |
-| RGB-ProgFreeze (ImageNet) | 0.717 ± 0.094  | 0.624 ± 0.086 | 0.557 ± 0.123 |
-
 ## Pre-trained Models
 
 We provide pre-trained models for BPD prediction, trained on the complete dataset. All models use ResNet-50 architecture with different initialization and training strategies.
@@ -91,11 +84,10 @@ Models were trained on the complete dataset and AUROC was computed using repeate
 
 | Model | Description | AUROC | Download |
 |-------|-------------|-------|----------|
-| **bpd_xrv_progfreeze_lp_cutmix** | Best performing model with XRV pretraining, progressive freezing, linear probing, and CutMix | 0.783 | [Download]() |
-| **bpd_xrv_progfreeze** | Baseline with XRV pretraining and progressive freezing (no augmentation) | 0.775 | [Download]() |
-| **bpd_xrv_fullft** | XRV pretraining with full fine-tuning (no freezing) | 0.761 | [Download]() |
-| **bpd_rgb_progfreeze** | ImageNet baseline with progressive freezing (for comparison) | 0.717 | [Download]() |
-
+| **bpd_xrv_progfreeze_lp_cutmix** | Best performing model with XRV pretraining, progressive freezing, linear probing, and CutMix | 0.783 | [Download](https://cloud.hiz-saarland.de/public.php/dav/files/nLYMSE8jRSg3j8j) |
+| **bpd_xrv_progfreeze** | Baseline with XRV pretraining and progressive freezing (no augmentation) | 0.775 | [Download](https://cloud.hiz-saarland.de/public.php/dav/files/SRxGJzLSpEMMAD4) |
+| **bpd_xrv_fullft** | XRV pretraining with full fine-tuning (no freezing) | 0.761 | [Download](https://cloud.hiz-saarland.de/public.php/dav/files/w2czAo4oYxFaAGi) |
+| **bpd_rgb_progfreeze** | ImageNet baseline with progressive freezing (for comparison) | 0.717 | [Download](https://cloud.hiz-saarland.de/public.php/dav/files/W7EmnFDSFwoFSBL) |
 
 
 ### Quick Start

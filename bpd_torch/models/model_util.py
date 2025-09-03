@@ -15,7 +15,7 @@ from PIL import Image
 
 MODEL_CONFIGS = {
     "bpd_xrv_progfreeze_lp_cutmix": {
-        "file_id": "PLACEHOLDER1",
+        "file_id": "nLYMSE8jRSg3j8j",
         "description": "Best performing model with XRV pretraining, progressive freezing, linear probing, and CutMix",
         "auroc": 0.783,
         "preprocessing": "xrv",
@@ -26,7 +26,7 @@ MODEL_CONFIGS = {
         "frozen_layers": ["layer1", "layer2", "layer3"]
     },
     "bpd_xrv_progfreeze": {
-        "file_id": "PLACEHOLDER2",
+        "file_id": "SRxGJzLSpEMMAD4",
         "description": "Baseline with XRV pretraining and progressive freezing (no augmentation)",
         "auroc": 0.775,
         "preprocessing": "xrv",
@@ -37,7 +37,7 @@ MODEL_CONFIGS = {
         "frozen_layers": ["layer1", "layer2", "layer3"]
     },
     "bpd_rgb_progfreeze": {
-        "file_id": "PLACEHOLDER3",
+        "file_id": "W7EmnFDSFwoFSBL",
         "description": "ImageNet baseline with progressive freezing (for comparison)",
         "auroc": 0.717,
         "preprocessing": "imagenet",
@@ -48,7 +48,7 @@ MODEL_CONFIGS = {
         "frozen_layers": ["layer1", "layer2", "layer3"]
     },
     "bpd_xrv_fullft": {
-        "file_id": "PLACEHOLDER4",
+        "file_id": "w2czAo4oYxFaAGi",
         "description": "XRV pretraining with full fine-tuning (no freezing)",
         "auroc": 0.761,
         "preprocessing": "xrv",
@@ -62,7 +62,7 @@ MODEL_CONFIGS = {
 
 
 class ModelDownloader:
-    """Downloads pre-trained BPD prediction models from Google Drive."""
+    """Downloads pre-trained BPD prediction models."""
     
     def __init__(self, model_name: str, save_dir: str = "~/.bpdneo/models"):
         """
@@ -84,9 +84,9 @@ class ModelDownloader:
         self.model_path = self.save_dir / f"{model_name}.pth"
         self.config_path = self.save_dir / f"{model_name}_config.json"
         
-        # Google Drive download URL
+        # Download URL
         file_id = self.config["file_id"]
-        self.model_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+        self.model_url = f"https://cloud.hiz-saarland.de/public.php/dav/files/{file_id}"
     
     def download_model(self) -> Path:
         """
